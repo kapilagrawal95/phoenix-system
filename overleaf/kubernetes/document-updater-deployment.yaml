@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    kompose.cmd: kompose convert
+    kompose.version: 1.26.0 (40646f47)
+  creationTimestamp: null
+  labels:
+    io.kompose.service: document-updater
+  name: document-updater
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      io.kompose.service: document-updater
+  strategy: {}
+  template:
+    metadata:
+      annotations:
+        kompose.cmd: kompose convert
+        kompose.version: 1.26.0 (40646f47)
+      creationTimestamp: null
+      labels:
+        io.kompose.network/default: "true"
+        io.kompose.service: document-updater
+        # node: "3"
+    spec:
+      # schedulerName: chakra
+      containers:
+        - image: gtato/sharelatex-document-updater
+          name: document-updater
+          ports:
+            - containerPort: 3003
+          resources:
+            requests:
+              cpu: 100m
+            limits:
+              cpu: 1000m
+      restartPolicy: Always
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: worker
+                operator: In
+                values:
+                - $DOCUMENT_UPDATER_NODE
+      # affinity:
+      #   nodeAffinity:
+      #     preferredDuringSchedulingIgnoredDuringExecution:
+      #     - weight: 1
+      #       preference:
+      #         matchExpressions:
+      #         - key: disktype
+      #           operator: In
+      #           values:
+      #           - none
+status: {}
+

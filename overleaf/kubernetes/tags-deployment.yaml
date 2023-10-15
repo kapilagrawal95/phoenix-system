@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    kompose.cmd: kompose convert
+    kompose.version: 1.26.0 (40646f47)
+  creationTimestamp: null
+  labels:
+    io.kompose.service: tags
+  name: tags
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      io.kompose.service: tags
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      annotations:
+        kompose.cmd: kompose convert
+        kompose.version: 1.26.0 (40646f47)
+      creationTimestamp: null
+      labels:
+        io.kompose.network: "true"
+        io.kompose.service: tags
+        # node: "4"
+    spec:
+      # schedulerName: chakra
+      containers:
+        - image: gtato/sharelatex-tags
+          name: tags
+          ports:
+            - containerPort: 3012
+          resources:
+            requests:
+              cpu: 100m
+            limits:
+              cpu: 1000m
+          volumeMounts:
+            - mountPath: /var/lib/mongodb
+              name: $TAGS_CLAIMNAME
+      restartPolicy: Always
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: worker
+                operator: In
+                values:
+                - $TAGS_NODE
+      # affinity:
+      #   nodeAffinity:
+      #     preferredDuringSchedulingIgnoredDuringExecution:
+      #     - weight: 1
+      #       preference:
+      #         matchExpressions:
+      #         - key: disktype
+      #           operator: In
+      #           values:
+      #           - none
+      volumes:
+        - name: $TAGS_CLAIMNAME
+          persistentVolumeClaim:
+            claimName: $TAGS_CLAIMNAME
+status: {}
+

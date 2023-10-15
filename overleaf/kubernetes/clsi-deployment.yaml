@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    kompose.cmd: kompose convert
+    kompose.version: 1.26.0 (40646f47)
+  creationTimestamp: null
+  labels:
+    io.kompose.service: clsi
+  name: clsi
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      io.kompose.service: clsi
+  strategy: {}
+  template:
+    metadata:
+      annotations:
+        kompose.cmd: kompose convert
+        kompose.version: 1.26.0 (40646f47)
+      creationTimestamp: null
+      labels:
+        io.kompose.network: "true"
+        io.kompose.service: clsi
+        # node: "2"
+    spec:
+      # schedulerName: chakra
+      containers:
+        - image: gtato/sharelatex-clsi
+          name: clsi
+          ports:
+            - containerPort: 3013
+          resources:
+            requests:
+              cpu: 100m
+            limits:
+              cpu: 1000m
+      restartPolicy: Always
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: worker
+                operator: In
+                values:
+                - $CLSI_NODE
+status: {}
+

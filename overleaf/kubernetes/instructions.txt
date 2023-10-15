@@ -1,0 +1,11 @@
+Everything else is fine.
+Don;t forget to change in web-deployment line 37
+More specifically, real-time is a websocket.
+In k8s, it is important to expose the websocket port using a NodePort (already done in real-time-deployment.yaml)
+Stackoverflow Link:https://stackoverflow.com/questions/64489979/websocket-connection-fails-for-internal-communication-within-a-kubernetes-contai
+(Look at the stackoverflow answer and its reply to understand better)
+Also when a new IP is generated that IP should be replaced in line 37 in web-deployment.
+Rest is ok.
+
+Sometimes there is a websocket error when trying to go into the file:. The reason is that the entire deployment was deleted, i.e., had to remove everything (except persistent volumes).
+If such a case occurs, reprovision another Cloudlab Cluster and start over.
