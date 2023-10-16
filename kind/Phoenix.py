@@ -6,6 +6,8 @@ import time
 import utils
 from kubernetes.client.rest import ApiException
 import subprocess
+from typing import Optional, Dict
+
 # def apply_kubernetes_manifest(manifest_file, namespace="overleaf"):
 #     # Load the Kubernetes configuration from the default location or provide the path to your kubeconfig file.
 #     config.load_kube_config()
@@ -67,6 +69,85 @@ config.load_kube_config()
 
 # Initialize the Kubernetes API client.
 v1 = client.CoreV1Api()
+
+@staticmethod
+def parse_resource_cpu(resource_str):
+    """ Parse CPU string to cpu count. """
+    unit_map = {'m': 1e-3, 'K': 1e3}
+    value = re.search(r'\d+', resource_str).group()
+    unit = resource_str[len(value):]
+    return float(value) * unit_map.get(unit, 1)
+
+@staticmethod
+def parse_resource_memory(resource_str):
+    """ Parse resource string to megabytes. """
+    unit_map = {'Ki': 2 ** 10, 'Mi': 2 ** 20, 'Gi': 2 ** 30, 'Ti': 2 ** 40}
+    value = re.search(r'\d+', resource_str).group()
+    unit = resource_str[len(value):]
+    return float(value) * unit_map.get(unit, 1) / (
+                2 ** 20)  # Convert to megabytes    
+        
+def get_cluster_state(kubecoreapi) -> Dict[str, Dict[str, int]]:
+    """ Get allocatable resources per node. """
+    # Get the nodes and running pods
+
+    limit = None
+    continue_token = ""
+    nodes, _, _ = kubecoreapi.list_node_with_http_info(limit=limit,
+                                                        _continue=continue_token)
+    
+    pods, _, _ = kubecoreapi.list_pod_for_all_namespaces_with_http_info(
+        limit=limit, _continue=continue_token)
+    # print(pods)
+
+    nodes = nodes.items
+    pods = pods.items
+    # print(nodes)
+    # print(pods)
+    available_resources = {}
+    running_pods = set()
+    failed_nodes = set()
+    for node in nodes:
+        for condition in node.status.conditions:
+            if condition.type == 'Ready' and condition.status == 'Unknown':
+                failed_nodes.add(node.metadata.name)
+                
+    for node in nodes:
+        name = node.metadata.name
+        if name in failed_nodes:
+            continue
+        total_cpu = parse_resource_cpu(node.status.allocatable['cpu'])
+        total_memory = parse_resource_memory(
+            node.status.allocatable['memory'])
+        # total_gpu = int(node.status.allocatable.get('nvidia.com/gpu', 0))
+
+        used_cpu = 0
+        used_memory = 0
+        # used_gpu = 0
+
+        for pod in pods:
+            if pod.spec.node_name == name and pod.status.phase in ['Running', 'Pending']:
+                running_pods.add(pod.metadata.name)
+                for container in pod.spec.containers:
+                    if container.resources.requests:
+                        used_cpu += parse_resource_cpu(
+                            container.resources.requests.get('cpu', '0m'))
+                        used_memory += parse_resource_memory(
+                            container.resources.requests.get('memory',
+                                                                '0Mi'))
+                        # used_gpu += int(container.resources.requests.get(
+                        #     'nvidia.com/gpu', 0))
+
+        available_cpu = total_cpu - used_cpu
+        available_memory = total_memory - used_memory
+        # available_gpu = total_gpu - used_gpu
+
+        available_resources[name] = {
+            'cpu': available_cpu,
+            'memory': available_memory,
+            # 'nvidia.com/gpu': available_gpu
+        }
+    return available_resources
 
 def list_pods_with_node():
     config.load_kube_config()  # Loads the kubeconfig file or in-cluster config
@@ -142,6 +223,10 @@ def run_phoenix(failed_nodes, curr_node_to_pod):
     # Destroy cluster
     # print("Destroying the cluster")
     deleted_pods = []
+    print(NODE_TO_POD)
+    print(POD_RANKS)
+    node_remaining = utils.get_cluster_state(v1)
+    
     for node in failed_nodes:
         p = get_deleted_pod(node, NODE_TO_POD, POD_RANKS)
         [deleted_pods.append(i) for i in p]
@@ -207,5 +292,8 @@ POD_RANKS = ["mongo", "redis", "docstore", "filestore", "real-time", "document-u
 
 if __name__ == "__main__":
     while True:
+        # print(NODE_TO_POD)
+        print(utils.get_pod_cpu_requests_and_limits(v1))
+        print(utils.get_cluster_state(v1))
         check_node_conditions_and_alert()
         time.sleep(15)
