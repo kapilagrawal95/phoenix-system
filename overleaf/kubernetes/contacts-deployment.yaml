@@ -34,9 +34,9 @@ spec:
             - containerPort: 3036
           resources:
             requests:
-              cpu: 100m
+              cpu: $CONTACTS_CPU
             limits:
-              cpu: 1000m
+              cpu: $CONTACTS_CPU
           volumeMounts:
             - mountPath: /var/lib/mongodb
               name: $CONTACTS_CLAIMNAME
@@ -46,7 +46,7 @@ spec:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
             - matchExpressions:
-              - key: worker
+              - key: nodes
                 operator: In
                 values:
                 - $CONTACTS_NODE

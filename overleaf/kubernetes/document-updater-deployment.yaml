@@ -33,16 +33,16 @@ spec:
             - containerPort: 3003
           resources:
             requests:
-              cpu: 100m
+              cpu: $DOCUMENT_UPDATER_CPU
             limits:
-              cpu: 1000m
+              cpu: $DOCUMENT_UPDATER_CPU
       restartPolicy: Always
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
             - matchExpressions:
-              - key: worker
+              - key: nodes
                 operator: In
                 values:
                 - $DOCUMENT_UPDATER_NODE

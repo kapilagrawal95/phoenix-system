@@ -51,5 +51,5 @@ def create_overleaf_users(num_users, ns, port):
             print("Successfully, added password for {}...".format(username))
         session.close()
 
-if __name__ == "__main__":
-    create_overleaf_users(10, "overleaf-2", 30915)
+# if __name__ == "__main__":
+#     create_overleaf_users(10, "overleaf-2", 30915)

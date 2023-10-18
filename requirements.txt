@@ -1,2 +1,11 @@
 pyperclip
 kubernetes
+locust
+websocket-client==0.54.0
+gevent
+pandas
+numpy
+socketio==0.2.1
+websocket==0.2.1
+plotly
+pandas

@@ -1,16 +1,35 @@
 import subprocess
 import utils
+from kubernetes import client, config
 
-NODES_TO_DEL = ["2"]
 
+NODES_TO_DEL = ["5", "6", "7"]
+
+NODE_INFO_DICT = {'node-5': {'startup': 'Finished', 'host': 'kapila1@pc489.emulab.net'}, 'node-4': {'startup': 'Finished', 'host': 'kapila1@pc436.emulab.net'}, 'node-7': {'startup': 'Finished', 'host': 'kapila1@pc500.emulab.net'}, 'node-6': {'startup': 'Finished', 'host': 'kapila1@pc518.emulab.net'}, 'node-1': {'startup': 'Finished', 'host': 'kapila1@pc517.emulab.net'}, 'node-0': {'startup': 'Finished', 'host': 'kapila1@pc516.emulab.net'}, 'node-3': {'startup': 'Finished', 'host': 'kapila1@pc494.emulab.net'}, 'node-2': {'startup': 'Finished', 'host': 'kapila1@pc483.emulab.net'}, 'node-9': {'startup': 'Finished', 'host': 'kapila1@pc515.emulab.net'}, 'node-8': {'startup': 'Finished', 'host': 'kapila1@pc482.emulab.net'}}
+
+def run_remote_cmd_output(host, cmd):
+    output = subprocess.check_output(f"ssh -p 22 -o StrictHostKeyChecking=no {host} -t {cmd}", shell=True, text=True)
+    return output
+
+def start_kubelet(node):
+    host = NODE_INFO_DICT[node]['host']
+    cmd = "sudo systemctl start kubelet"
+    run_remote_cmd_output(host, cmd)
+    
 def stop_kubelet(node):
+    host = NODE_INFO_DICT[node]['host']
+    cmd = "sudo systemctl stop kubelet"
+    run_remote_cmd_output(host, cmd)
+    # print(host, cmd)
+    
+def stop_kubelet_docker(node):
     try:
         # if a kind cluster then
         cmd = f"docker exec -it {node} /bin/bash -c 'systemctl stop kubelet'" # else replace docker exec kubectl exec
         subprocess.check_call(cmd, shell=True)
         print(f"Stopped kubelet on {node} successfully")
     except:
-        print(f"Error stopping kubelet on {node}: {e}")
+        print(f"Error stopping kubelet on {node}")
     
 def delete_deployment_forcefully(deployment, namespace="overleaf"):
     try:
@@ -61,29 +80,16 @@ def get_pods_current_allocation(namespace="overleaf"):
             pod_to_node[key] = value
     return pod_to_node
 
-def get_all_pods_to_delete(pod_to_node):
-    result_dict = {}
+def get_all_pods_to_delete(node_to_pod):
 
-    # Iterate through the items in the original dictionary
-    for key, value in pod_to_node.items():
-        # If the value is not already in the result dictionary, create a new entry
-        if value not in result_dict:
-            result_dict[value] = key
-        # If the value is already in the result dictionary, append the key to a list
-        else:
-            if isinstance(result_dict[value], list):
-                result_dict[value].append(key)
-            else:
-                result_dict[value] = [result_dict[value], key]
-    
-    list_of_nodes = list(result_dict.keys())
+    list_of_nodes = list(node_to_pod.keys())
     list_of_pods_to_kill = []
     list_of_nodes_to_kill = []
     for ele in NODES_TO_DEL:
         for node in list_of_nodes:
             if ele in node:
                 list_of_nodes_to_kill.append(node)
-                pods = result_dict[node]
+                pods = node_to_pod[node]
                 [list_of_pods_to_kill.append(pod) for pod in pods]
     return list_of_pods_to_kill, list_of_nodes_to_kill
     
@@ -103,19 +109,23 @@ def get_all_objects_associated(pod):
 def run_chaos(pods, nodes):
     processes = []
     for pod in pods:
-        deployment = parse_pod_name(pod)
         objects = get_all_objects_associated(pod)
-        delete_pod_forcefully(objects["pod"])
-        delete_deployment_forcefully(objects["deployment"])
+        delete_pod_forcefully(objects["pod"], namespace="overleaf-0")
+        delete_deployment_forcefully(objects["deployment"], namespace="overleaf-0")
         # if "pvc" in objects:
         #     processes.append(delete_pvc_forcefully_async(objects["pvc"]))
     for node in nodes:
         stop_kubelet(node)
     
-
 if __name__ == "__main__":
-    pod_to_node = get_pods_current_allocation()
-    print(pod_to_node)    
-    pods, nodes = get_all_pods_to_delete(pod_to_node)
-    print(pods, nodes)
-    run_chaos(pods, nodes)
+    config.load_kube_config()
+    # Initialize the Kubernetes API client.
+    v1 = client.CoreV1Api()
+    # pod_to_node, node_to_pod = utils.list_pods_with_node(v1, phoenix_enabled=True)
+    # print(pod_to_node, node_to_pod)    
+    # pods, nodes = get_all_pods_to_delete(node_to_pod)
+    # print(pods, nodes)
+    # run_chaos(pods, nodes)
+    nodes = ['node-6', 'node-7']
+    for node in nodes:
+        start_kubelet(node)

@@ -34,9 +34,9 @@ spec:
             - containerPort: 3012
           resources:
             requests:
-              cpu: 100m
+              cpu: $TAGS_CPU
             limits:
-              cpu: 1000m
+              cpu: $TAGS_CPU
           volumeMounts:
             - mountPath: /var/lib/mongodb
               name: $TAGS_CLAIMNAME
@@ -46,7 +46,7 @@ spec:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
             - matchExpressions:
-              - key: worker
+              - key: nodes
                 operator: In
                 values:
                 - $TAGS_NODE

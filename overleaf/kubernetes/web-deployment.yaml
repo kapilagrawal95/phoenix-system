@@ -50,9 +50,9 @@ spec:
             - containerPort: 3000
           resources:
             requests:
-              cpu: 100m
+              cpu: $WEB_CPU
             limits:
-              cpu: 1000m
+              cpu: $WEB_CPU
           securityContext:
             privileged: true
       restartPolicy: Always
@@ -61,7 +61,7 @@ spec:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
             - matchExpressions:
-              - key: worker
+              - key: nodes
                 operator: In
                 values:
                 - $WEB_NODE

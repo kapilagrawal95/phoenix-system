@@ -13,7 +13,7 @@ spec:
   ports:
     - name: "3026"
       port: 3026
-      nodePort: 30911
+      nodePort: $REAL_TIME_NODEPORT
       targetPort: 3026
   selector:
     io.kompose.service: real-time

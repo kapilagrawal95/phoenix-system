@@ -34,9 +34,9 @@ spec:
             - containerPort: 3016
           resources:
             requests:
-              cpu: 100m
+              cpu: $DOCSTORE_CPU
             limits:
-              cpu: 1000m
+              cpu: $DOCSTORE_CPU
           volumeMounts:
             - mountPath: /var/lib/mongodb
               name: $DOCSTORE_CLAIMNAME
@@ -46,7 +46,7 @@ spec:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
             - matchExpressions:
-              - key: worker
+              - key: nodes
                 operator: In
                 values:
                 - $DOCSTORE_NODE

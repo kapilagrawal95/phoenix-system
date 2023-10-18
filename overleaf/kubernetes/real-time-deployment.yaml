@@ -33,16 +33,16 @@ spec:
             - containerPort: 3026
           resources:
             requests:
-              cpu: 100m
+              cpu: $REAL_TIME_CPU
             limits:
-              cpu: 1000m
+              cpu: $REAL_TIME_CPU
       restartPolicy: Always
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
             - matchExpressions:
-              - key: worker
+              - key: nodes
                 operator: In
                 values:
                 - $REAL_TIME_NODE

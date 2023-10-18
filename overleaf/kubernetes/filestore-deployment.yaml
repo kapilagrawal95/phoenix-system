@@ -34,9 +34,9 @@ spec:
             - containerPort: 3009
           resources:
             requests:
-              cpu: 100m
+              cpu: $FILESTORE_CPU
             limits:
-              cpu: 1000m
+              cpu: $FILESTORE_CPU
           volumeMounts:
             - mountPath: /app/data
               name: $FILESTORE_CLAIMNAME
@@ -46,7 +46,7 @@ spec:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
             - matchExpressions:
-              - key: worker
+              - key: nodes
                 operator: In
                 values:
                 - $FILESTORE_NODE

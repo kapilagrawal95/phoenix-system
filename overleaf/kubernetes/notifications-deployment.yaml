@@ -34,9 +34,9 @@ spec:
             - containerPort: 3042
           resources:
             requests:
-              cpu: 100m
+              cpu: $NOTIFICATIONS_CPU
             limits:
-              cpu: 1000m
+              cpu: $NOTIFICATIONS_CPU
           volumeMounts:
             - mountPath: /var/lib/mongodb
               name: $NOTIFICATIONS_CLAIMNAME
@@ -45,7 +45,7 @@ spec:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
             - matchExpressions:
-              - key: worker
+              - key: nodes
                 operator: In
                 values:
                 - $NOTIFICATIONS_NODE

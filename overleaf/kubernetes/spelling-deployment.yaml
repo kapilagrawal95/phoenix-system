@@ -34,9 +34,9 @@ spec:
             - containerPort: 3005
           resources:
             requests:
-              cpu: 100m
+              cpu: $SPELLING_CPU
             limits:
-              cpu: 1000m
+              cpu: $SPELLING_CPU
           volumeMounts:
             - mountPath: /var/lib/mongodb
               name: $SPELLING_CLAIMNAME
@@ -46,7 +46,7 @@ spec:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
             - matchExpressions:
-              - key: worker
+              - key: nodes
                 operator: In
                 values:
                 - $SPELLING_NODE

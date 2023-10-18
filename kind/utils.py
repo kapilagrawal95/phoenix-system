@@ -12,10 +12,43 @@ import threading
 import time
 from collections import deque
 from typing import Optional, Dict
-
+import math
 from kubernetes.client import V1Pod
 from kubernetes import client, config, watch
 
+def check_pods_in_namespace(namespace, v1):
+    # v1 = client.CoreV1Api()
+    pod_list = v1.list_namespaced_pod(namespace)
+
+    for pod in pod_list.items:
+        if pod.status.phase != "Running":
+            return False
+
+    return True
+  
+def list_pods_with_node(v1, phoenix_enabled = False):
+    # List all pods in the cluster
+    pods = v1.list_pod_for_all_namespaces(watch=False)
+    pod_to_node = {}
+    node_to_pod = {}
+    for pod in pods.items:
+        pod_name = pod.metadata.name
+        namespace = pod.metadata.namespace
+        node_name = pod.spec.node_name
+        if phoenix_enabled:
+          namespace_obj = v1.read_namespace(namespace)
+          labels = namespace_obj.metadata.labels
+          if "phoenix" not in labels:
+            continue
+          if labels["phoenix"] != "enabled":
+            continue
+        pod_to_node[pod_name] = node_name
+        if node_name in node_to_pod.keys():
+            node_to_pod[node_name].append(pod_name)
+        else:
+            node_to_pod[node_name] = [pod_name]
+    return pod_to_node, node_to_pod
+  
 def get_pod_cpu_requests_and_limits(api):
     # Load Kubernetes configuration from the default location
     # config.load_kube_config()
@@ -24,17 +57,30 @@ def get_pod_cpu_requests_and_limits(api):
     # api = client.CoreV1Api()
 
     # Get the list of pods in the cluster
+    # namespaces = v1.list_namespace(label_selector="phoenix=enabled")
+      # for ns in namespaces.items:
+      #     namespace_name = ns.metadata.name
+    # pods = api.list_pod_for_all_namespaces().items
     pods = api.list_pod_for_all_namespaces().items
-
+    print(len(pods))
     pod_resources = []
 
     for pod in pods:
         pod_name = pod.metadata.name
         
         namespace = pod.metadata.namespace
-        if namespace != "overleaf":
+        namespace_obj = api.read_namespace(namespace)
+
+        # Extract and print the namespace's labels
+        labels = namespace_obj.metadata.labels
+        if "phoenix" not in labels:
           continue
-        print(pod_name)
+        
+        if labels["phoenix"] != "enabled":
+          continue
+        # if namespace != "overleaf":
+        #   continue
+        # print(pod_name)
         # Get the pod's resource requests and limits
         cpu_request = pod.spec.containers[0].resources.requests.get('cpu', 'N/A')
         cpu_limit = pod.spec.containers[0].resources.limits.get('cpu', 'N/A')
@@ -47,6 +93,9 @@ def get_pod_cpu_requests_and_limits(api):
         })
 
     return pod_resources
+  
+def parse_pod_name(pod):
+    return "-".join(pod.split("-")[:-2])
   
 # @staticmethod
 def parse_resource_cpu(resource_str):
@@ -80,6 +129,7 @@ def get_cluster_state(kubecoreapi) -> Dict[str, Dict[str, int]]:
 
     nodes = nodes.items
     pods = pods.items
+    print("Total pods when getting cluster state = {}".format(len(pods)))
     # print(nodes)
     # print(pods)
     available_resources = {}
@@ -136,11 +186,90 @@ def create_namespace(ns):
       print("Failed to create namespace {}".format(ns))
       output = None
     return output
+
+def get_ip():
+    cmd = "hostname -I | awk '{print $1}'"
+    # output = setup_cloudlab.run_remote_cmd_output(host, cmd)
+    output = subprocess.check_output(cmd, shell=True, text=True)
+    ip_pattern = r'\b(?:\d{1,3}\.){3}\d{1,3}\b'
+    ip_addresses = re.findall(ip_pattern, output)
+    return ip_addresses[0]
   
-def initiate_pod(manifest_files, deployment_name, node_name, namespace):
+def most_empty_bin_packing(api, resource, candidates):
+    cluster_state = get_cluster_state(api)
+    candidates = set(candidates)
+    remaining_space = -1*math.inf
+    best_fit_bin = None
+    print("Cluster State before allocation = {}".format(cluster_state))
+    for node in cluster_state.keys():
+      if node in candidates:
+        remaining = cluster_state[node]["cpu"] - resource
+        # print(node, cluster_state[node]["cpu"], remaining)
+        if remaining < 0: # if remaining < 0 that mean there is not enough space to fit.
+          continue
+        else:
+          if remaining > remaining_space:
+            remaining_space = remaining
+            best_fit_bin = node
+    # Also need to ensure that no node has more than 10 (or 12) pods. This is the kubernetes limit.
+    if best_fit_bin is None:
+      raise Exception("Cannot schedule. Check if there is enough capacity on the candidate nodes!")
+    else:
+      _, node_to_pod = list_pods_with_node(api, phoenix_enabled=False) # here need all pods on node to get the total count
+      if len(node_to_pod[best_fit_bin]) > 9:
+        
+        print("The most-empty node {} had more than 10 pods so going to the next most-empty.".format(best_fit_bin))
+        print("here is the list of pods assigned to node {}".format(best_fit_bin, node_to_pod[best_fit_bin]))
+        candidates.remove(best_fit_bin)
+        new_candidates = list(candidates)
+        print("New candidates are {}".format(new_candidates))
+        best_fit_bin = most_empty_bin_packing(api, resource, new_candidates)
+        # raise Exception("Cannot schedule. Because the best-fit node already has 10 or higher pods!")
+    # print("Speculated cluster state after allocation = {}".format(cluster_state))
+    return best_fit_bin
+    
+def best_fit_bin_packing(api, resource, candidates):
+    cluster_state = get_cluster_state(api)
+    candidates = set(candidates)
+    remaining_space = math.inf
+    best_fit_bin = None
+    print("Cluster State before allocation = {}".format(cluster_state))
+    for node in cluster_state.keys():
+      if node in candidates:
+        remaining = cluster_state[node]["cpu"] - resource
+        # print(node, cluster_state[node]["cpu"], remaining)
+        if remaining < 0: # if remaining < 0 that mean there is not enough space to fit.
+          continue
+        else:
+          if remaining < remaining_space:
+            remaining_space = remaining
+            best_fit_bin = node
+    # Also need to ensure that no node has more than 10 (or 12) pods. This is the kubernetes limit.
+    if best_fit_bin is None:
+      raise Exception("Cannot schedule. Check if there is enough capacity on the candidate nodes!")
+    else:
+      _, node_to_pod = list_pods_with_node(api, phoenix_enabled=False) # here need all pods on node to get the total count
+      if len(node_to_pod[best_fit_bin]) > 9:
+        
+        print("The best-fit node {} had more than 10 pods so going to the next best-fit.".format(best_fit_bin))
+        print("here is the list of pods assigned to node {}".format(best_fit_bin, node_to_pod[best_fit_bin]))
+        candidates.remove(best_fit_bin)
+        new_candidates = list(candidates)
+        print("New candidates are {}".format(new_candidates))
+        best_fit_bin = best_fit_bin_packing(api, resource, new_candidates)
+        # raise Exception("Cannot schedule. Because the best-fit node already has 10 or higher pods!")
+    # print("Speculated cluster state after allocation = {}".format(cluster_state))
+    return best_fit_bin
+    
+def initiate_pod(manifest_files, deployment_name, node_name, namespace, env_vars=None):
     # cmd = f"kubectl apply -f overleaf/kubernetes/contacts-pv.yaml"
     # subprocess.check_call(cmd, shell=True)
     # Set the environment variable
+    if len(env_vars):
+      for key in env_vars.keys():
+        print("Setting environment variable {} to {} in {}".format(key, env_vars[key], deployment_name))
+        os.environ[key] = str(env_vars[key])
+        
     pv_claim_var = str(deployment_name.upper() + "_CLAIMNAME").replace("-", "_")
     node_var = str(deployment_name.upper() + "_NODE").replace("-", "_")
     for file in manifest_files:
@@ -156,14 +285,19 @@ def initiate_pod(manifest_files, deployment_name, node_name, namespace):
         print("Setting {} variable to {}".format(pv_claim_var, pvc_name))
         envsubst_command = ["envsubst < {} | kubectl apply -n {} -f -".format(file, namespace)]
         output = subprocess.check_output(envsubst_command, shell=True, text=True)
-        print(output)
+        # print(output)
       elif "deployment" in file:
         # os.environ[pv_claim_var] = pvc_name
-        os.environ[node_var] = str(node_name)
-        print("Setting {} variable to {}".format(node_var, node_name))
+        val = '"'+str(node_name)+'"'
+        os.environ[node_var] = val
+        print("Setting {} variable to {}".format(node_var, val))
+        envsubst_command = ["envsubst < {} | kubectl apply -n {} -f -".format(file, namespace)]
+        output = subprocess.check_output(envsubst_command, shell=True, text=True)
+      elif "service" in file:
         envsubst_command = ["envsubst < {} | kubectl apply -n {} -f -".format(file, namespace)]
         output = subprocess.check_output(envsubst_command, shell=True, text=True)
       print(output)
+    
     # envsubst_command = ["envsubst < {} | kubectl apply -f -".format(manifest_file)]
     # os.environ["CONTACTS_NODE"] = str(node_name)
     # manifest_file = "overleaf/kubernetes/contacts-deployment.yaml"
@@ -215,7 +349,7 @@ def cpu(value):
 
 def memory(value):
   """
-  Return Memory in MB
+  Return Memory in MB 
   """
   if re.match(r"[0-9]{1,9}Mi?", str(value)):
     mem = re.sub("[^0-9]", "", value)
@@ -227,13 +361,30 @@ def memory(value):
     mem = int(mem) * 1024
   return int(mem)
 
-if __name__ == "__main__":
-    fetch_all_files("docstore")
+# if __name__ == "__main__":
+#     fetch_all_files("docstore")
     
-if __name__ == "__main__":
-  s = "asid"
-  s = s.upper()
-  print(s)
+# if __name__ == "__main__":
+#   s = "asid"
+#   s = s.upper()
+#   print(s)
   # manifests = fetch_all_files("contacts")
   # print(manifests)
   # initiate_pod(manifests, "contacts", "one")
+
+if __name__ == "__main__":
+  # Check if all pods are running in all valid namespaces
+  flag=True
+  config.load_kube_config()
+  # List all namespaces with label "phoenix=enabled"
+  v1 = client.CoreV1Api()
+  while flag:
+      namespaces = v1.list_namespace(label_selector="phoenix=enabled")
+      for ns in namespaces.items:
+          namespace_name = ns.metadata.name
+          if check_pods_in_namespace(namespace_name):
+              print(f'All pods are running in namespace "{namespace_name}"')
+              flag = False
+          else:
+              print(f'Not all pods are running in namespace "{namespace_name}"')
+    

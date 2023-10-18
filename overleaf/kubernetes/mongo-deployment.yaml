@@ -34,9 +34,9 @@ spec:
             - containerPort: 27017
           resources:
             requests:
-              cpu: 100m
+              cpu: $MONGO_CPU
             limits:
-              cpu: 1000m
+              cpu: $MONGO_CPU
           volumeMounts:
             - mountPath: /data/db
               name: $MONGO_CLAIMNAME
@@ -46,7 +46,7 @@ spec:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
             - matchExpressions:
-              - key: worker
+              - key: nodes
                 operator: In
                 values:
                 - $MONGO_NODE
