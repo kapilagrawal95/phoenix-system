@@ -1,0 +1,11 @@
+=1. First run bash node-0_startup.sh
+2. Copy the NODE_INFO_DICT from driver/main (in local) and paste it at chaos.py (in remote)
+3. now run start_workloads.py (this will run Phoenix after deploying the workloads..)
+# For reuse purposes, keep the workloads if phoenix needs to be ran twice..
+I purposedly, keep a gap between #3 and #4 because sometimes pods fail.. so 4 might need some manual intervention..
+4. then create users (preferrably 1 to 10) --  this takes 2-3 mins
+5. Now go into local and generate load (ensure that you log the generated load into some logfile) 
+6. Run chaos.py but let some time pass to get to steady load..
+7. After running chaos.py, phoenix will detect it and fix the cluster in sometime..(Phoenix runs only once -- have hardcoded it..)
+8. Run parse_logs.py to see the utility and success rate curves for this run..
+9. Cleanup using clean-up file..

@@ -1,11 +1,12 @@
 import subprocess
 import utils
 from kubernetes import client, config
+import logging
+import datetime
 
+NODES_TO_DEL = ["5", "7"]
 
-NODES_TO_DEL = ["5", "6", "7"]
-
-NODE_INFO_DICT = {'node-5': {'startup': 'Finished', 'host': 'kapila1@pc489.emulab.net'}, 'node-4': {'startup': 'Finished', 'host': 'kapila1@pc436.emulab.net'}, 'node-7': {'startup': 'Finished', 'host': 'kapila1@pc500.emulab.net'}, 'node-6': {'startup': 'Finished', 'host': 'kapila1@pc518.emulab.net'}, 'node-1': {'startup': 'Finished', 'host': 'kapila1@pc517.emulab.net'}, 'node-0': {'startup': 'Finished', 'host': 'kapila1@pc516.emulab.net'}, 'node-3': {'startup': 'Finished', 'host': 'kapila1@pc494.emulab.net'}, 'node-2': {'startup': 'Finished', 'host': 'kapila1@pc483.emulab.net'}, 'node-9': {'startup': 'Finished', 'host': 'kapila1@pc515.emulab.net'}, 'node-8': {'startup': 'Finished', 'host': 'kapila1@pc482.emulab.net'}}
+NODE_INFO_DICT = {'node-5': {'startup': 'Finished', 'host': 'kapila1@pc492.emulab.net'}, 'node-4': {'startup': 'Finished', 'host': 'kapila1@pc477.emulab.net'}, 'node-7': {'startup': 'Finished', 'host': 'kapila1@pc474.emulab.net'}, 'node-6': {'startup': 'Finished', 'host': 'kapila1@pc479.emulab.net'}, 'node-1': {'startup': 'Finished', 'host': 'kapila1@pc476.emulab.net'}, 'node-0': {'startup': 'Finished', 'host': 'kapila1@pc499.emulab.net'}, 'node-3': {'startup': 'Finished', 'host': 'kapila1@pc498.emulab.net'}, 'node-2': {'startup': 'Finished', 'host': 'kapila1@pc473.emulab.net'}, 'node-9': {'startup': 'Finished', 'host': 'kapila1@pc491.emulab.net'}, 'node-8': {'startup': 'Finished', 'host': 'kapila1@pc478.emulab.net'}}
 
 def run_remote_cmd_output(host, cmd):
     output = subprocess.check_output(f"ssh -p 22 -o StrictHostKeyChecking=no {host} -t {cmd}", shell=True, text=True)
@@ -81,7 +82,6 @@ def get_pods_current_allocation(namespace="overleaf"):
     return pod_to_node
 
 def get_all_pods_to_delete(node_to_pod):
-
     list_of_nodes = list(node_to_pod.keys())
     list_of_pods_to_kill = []
     list_of_nodes_to_kill = []
@@ -90,42 +90,54 @@ def get_all_pods_to_delete(node_to_pod):
             if ele in node:
                 list_of_nodes_to_kill.append(node)
                 pods = node_to_pod[node]
-                [list_of_pods_to_kill.append(pod) for pod in pods]
+                [list_of_pods_to_kill.append(utils.parse_pod_name(pod)) for pod in pods]
     return list_of_pods_to_kill, list_of_nodes_to_kill
     
 def parse_pod_name(pod):
     return "-".join(pod.split("-")[:-2])
     
             
-def get_all_objects_associated(pod):
-    deployment = parse_pod_name(pod)
-    files = utils.fetch_all_files(deployment)
-    objects = {"pod":pod, "deployment":deployment}
-    for f in files:
-        if 'pv' in f:
-            objects["pvc"] = utils.get_resource_name_from_yaml(f)
+def get_all_objects_associated(deployment, ns):
+    files = utils.fetch_all_files(deployment, ROOT="kubernetes/")
+    pod_command = "kubectl get pods -n {} | grep '^{}' | awk {}".format(ns, deployment, "'{print $1}'")
+    output = subprocess.check_output(pod_command, shell=True)
+    pod_name = output.decode("utf-8").strip()
+    objects = {"pod":pod_name, "deployment":deployment}
+    # for f in files:
+    #     if 'pv' in f:
+    #         objects["pvc"] = utils.get_resource_name_from_yaml(f)
     return objects
     
-def run_chaos(pods, nodes):
+def run_chaos(pods, nodes, logger, host_name):
     processes = []
     for pod in pods:
-        objects = get_all_objects_associated(pod)
-        delete_pod_forcefully(objects["pod"], namespace="overleaf-0")
-        delete_deployment_forcefully(objects["deployment"], namespace="overleaf-0")
-        # if "pvc" in objects:
-        #     processes.append(delete_pvc_forcefully_async(objects["pvc"]))
+        ns_name, ms_name = pod
+        objects = get_all_objects_associated(ms_name, ns_name)
+        delete_pod_forcefully(objects["pod"], namespace=ns_name)
+        delete_deployment_forcefully(objects["deployment"], namespace=ns_name)
+        logger.info("[{}] {} [Chaos] Forcefully deleted deployment {} on namespace {}.".format(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'), host_name, ms_name, ns_name))
+    #     # if "pvc" in objects:
+    #     #     processes.append(delete_pvc_forcefully_async(objects["pvc"]))
     for node in nodes:
         stop_kubelet(node)
+        logger.info("[{}] {} [Chaos] Stopped Kubelet on node {}.".format(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'), host_name, node))
     
 if __name__ == "__main__":
+    logging.basicConfig(filename='logs/chaos.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+    logger = logging.getLogger()
+    name_of_host_cmd = "hostname"
+    host_name = str(subprocess.check_output(name_of_host_cmd, shell=True, text=True)).strip()
     config.load_kube_config()
-    # Initialize the Kubernetes API client.
+    #Initialize the Kubernetes API client.
     v1 = client.CoreV1Api()
-    # pod_to_node, node_to_pod = utils.list_pods_with_node(v1, phoenix_enabled=True)
+    pod_to_node, node_to_pod = utils.list_pods_with_node(v1, phoenix_enabled=True)
+    print(node_to_pod)
     # print(pod_to_node, node_to_pod)    
-    # pods, nodes = get_all_pods_to_delete(node_to_pod)
-    # print(pods, nodes)
-    # run_chaos(pods, nodes)
-    nodes = ['node-6', 'node-7']
-    for node in nodes:
-        start_kubelet(node)
+    pods, nodes = get_all_pods_to_delete(node_to_pod)
+    print(pods, nodes)
+    logger.info("[{}] {} [Chaos] Beginning chaos experiment on nodes {}".format(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'), host_name, nodes))
+    run_chaos(pods, nodes, logger, host_name)
+    
+    ## Only during testing..
+    # for node in nodes:
+    #     start_kubelet(node)

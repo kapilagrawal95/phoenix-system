@@ -178,9 +178,9 @@ def restart_microservice(deployment_name, namespace="overleaf"):
         # apply_kubernetes_manifest(manifest)
 
 
-def restart_failed_microservice(deployment_name, namespace="overleaf"):
-    kube_manifests = utils.fetch_all_files(deployment_name)
-    utils.initiate_pod(kube_manifests, deployment_name, "one")
+def restart_failed_microservice(deployment_name, node_name, env_vars, namespace="overleaf"):
+    kube_manifests = utils.fetch_all_files(deployment_name, ROOT="kubernetes/")
+    utils.initiate_pod(kube_manifests, deployment_name, utils.get_node_label(node_name), namespace, env_vars)
     # print(kube_manifests)
     # for manifest in kube_manifests:
     #     if "pv" in manifest:
@@ -196,58 +196,117 @@ def restart_failed_microservice(deployment_name, namespace="overleaf"):
         # print(output)
         # apply_kubernetes_manifest(manifest)
         
-def get_deleted_pod(api, target_node, node_to_pod, pod_ranks):
-    _, node_to_pod = utils.list_pods_with_node(api)
-    pods = ["-".join(pod.split("-")[:-2]) for pod in node_to_pod[target_node]]
-    return pods
+# def get_deleted_pod(api, target_node, node_to_pod, pod_ranks):
+#     _, node_to_pod = utils.list_pods_with_node(api)
+#     pods = ["-".join(pod.split("-")[:-2]) for pod in node_to_pod[target_node]]
+#     return pods
 
-def run_phoenix(api, failed_nodes, curr_node_to_pod, workloads):
-    new_pod_to_node, new_node_to_pod = utils.list_pods_with_node(api, phoenix_enabled=True)
-    # Destroy cluster
-    # print("Destroying the cluster")
-    deleted_pods = []
-    print(NODE_TO_POD)
-    print(POD_RANKS)
-    node_remaining = utils.get_cluster_state(api)
-    nodes = list(node_remaining.keys())
-    pods = POD_RANKS[:10]
-    pod_to_node = {}
-    for pod in new_pod_to_node.keys():
-        pod_to_node[utils.parse_pod_name(pod)] = new_pod_to_node[pod]
-        
+def get_actions(current, target):
+    # First find what to delete
+    print("In get actions")
+    print(current)
+    print(target)
+    to_delete = []
+    to_spawn = []
+    to_migrate = []
+    for pod in current.keys():
+        if pod not in target.keys():
+            ns, ms = utils.parse_key(pod)
+            to_delete.append((ns, ms))
+        else: # if the pod exists in both then check whether the node is different. This means we need to migrate
+            if target[pod] != current[pod]:
+                ns, ms = utils.parse_key(pod)
+                to_delete.append((ns, ms))
+                to_spawn.append((ns, ms, target[pod]))
+                to_migrate.append((ns, ms, target[pod]))
+            
+    for pod in target.keys():
+        if pod not in current.keys(): # This means 
+            print(pod)
+            ns, ms = utils.parse_key(pod)
+            print(ns, ms)
+            to_spawn.append((ns, ms, target[pod]))
     
+    return to_delete, to_spawn, to_migrate
+    
+def run_phoenix(api, failed_nodes, curr_node_to_pod, workloads, stateless_nodes):
+    curr_pod_to_node, curr_node_to_pod = utils.list_pods_with_node(api, phoenix_enabled=True)
+    deleted_pods = []
+    node_remaining = utils.get_cluster_state(api)
+    node_remanining_stateless = {}
+    stateless_nodes_set = set(stateless_nodes)
+    for node in node_remaining.keys():
+        if node in stateless_nodes_set:
+            node_remanining_stateless[node] = node_remaining[node]
+            
+    print(node_remanining_stateless)
+    nodes = list(node_remanining_stateless.keys())
+    # pods = [pod for pod in POD_RANKS if ]
+    POD_RANKS = ["overleaf0--mongo", "overleaf0--redis", "overleaf0--docstore", "overleaf0--filestore", 
+                 "overleaf0--real-time", "overleaf0--document-updater", "overleaf0--web", "overleaf0--clsi",
+                 "overleaf0--track-changes","overleaf0--notifications", "overleaf0--contacts", "overleaf0--spelling", "overleaf0--tags"]
+    pods = POD_RANKS
+    pods = [pod for pod in POD_RANKS if workloads[pod]["stateless"]]
+    pod_to_node = {}
+    for pod in curr_pod_to_node.keys():
+        ns, svc = utils.parse_pod_name(pod)
+        k = ns+"--"+svc
+        if workloads[k]["stateless"]:
+            pod_to_node[k] = curr_pod_to_node[pod]
     num_nodes = len(nodes)
     num_pods = len(pods)
     pod_resources = {}
     # d = workloads["overleaf-0"]
-    for key in workloads.keys():
-        d = workloads[key]
-        for service in d.keys():            
-            cpu = int(next((value for key, value in d[service]["env_vars"].items() if "_CPU" in key), None).replace("m", ""))/1000
-            pod_resources[service] = cpu
+    for ms in workloads.keys():
+        d = workloads[ms]
+        # for service in d.keys(): 
+        if d['stateless']:           
+            cpu = int(next((value for key, value in d["env_vars"].items() if "_CPU" in key), None).replace("m", ""))/1000
+            pod_resources[ms] = cpu
     
-    node_resources = {}
-    for node in node_remaining.keys():
-        node_resources[node] = node_remaining[node]["cpu"]
-        
+    remaining_node_resources = {} # This is the remaining node resource
+    for node in node_remanining_stateless.keys():
+        remaining_node_resources[node] = node_remanining_stateless[node]["cpu"]
+    
+    print(remaining_node_resources)
+    total_node_resources = {} # Total is what Phoenix Scheduler needs
+    # We make total by just adding pod_resources (phoenix enabled only) to give the impression to the scheduler that only phoenix monitored nodes are running
+    for node in remaining_node_resources.keys():
+        total_node_resources[node] = remaining_node_resources[node] + (sum([pod_resources[utils.parse_pod_name_to_key(pod)] for pod in curr_node_to_pod[node]]) if node in curr_node_to_pod else 0)
+    
+    # print(total_node_resources)
+    # print(pod_resources)
     state = {"list_of_nodes": nodes,
              "list_of_pods": pods,
              "pod_to_node": pod_to_node,
              "num_nodes": num_nodes,
              "num_pods": num_pods,
              "pod_resources": pod_resources,
-             "node_resources": node_resources
+             "node_resources": total_node_resources
     }
     
-    print(pods)
-    print(nodes)
-    print(pod_resources)
-    print(pod_to_node)
+    print(state)
+    
     scheduler = PhoenixScheduler(state, remove_asserts=True, allow_mig=True)
-    pod_to_node = scheduler.scheduler_tasks["sol"]
-    print(pod_to_node)
+    proposed_pod_to_node = scheduler.scheduler_tasks["sol"]
+    print(proposed_pod_to_node)
+    
+    delete_microservices, spawn_microservices, migrate_microservices = get_actions(pod_to_node, proposed_pod_to_node)
+    print("Microservices to be deleted {}".format(delete_microservices))
+    print("Microservices to be migrated {}".format(migrate_microservices))
+    print("Microservices to be added {}".format(spawn_microservices))
+    
+    for ns, ms in delete_microservices:
+        delete_microservice(ms, namespace=ns)
+        
+    for ns, ms, node in spawn_microservices:
+        k = ns+"--"+ms
+        restart_failed_microservice(ms, node, workloads[k]["env_vars"], namespace=ns)
     
     
+    # Corroborate the empty space of Phoenix Scheduler with actual
+    # print(node_remaining)
+    # print(new_node_to_pod)
     # for node in failed_nodes:
     #     p = get_deleted_pod(api, node, NODE_TO_POD, POD_RANKS)
     #     [deleted_pods.append(i) for i in p]
@@ -294,7 +353,7 @@ def run_phoenix(api, failed_nodes, curr_node_to_pod, workloads):
     # restart_microservice("web")
 
 # Define a function to check node conditions and send alerts if nodes are not ready.
-def check_node_conditions_and_alert(v1, workloads):
+def check_node_conditions_and_alert(v1, workloads, stateless_nodes):
     global FIXED
     nodes = v1.list_node(watch=False)
     failed = False
@@ -307,7 +366,7 @@ def check_node_conditions_and_alert(v1, workloads):
                 failed_nodes.append(node.metadata.name)
                 failed = True
     if failed and not FIXED:
-        run_phoenix(v1, failed_nodes, curr_node_to_pod, workloads)
+        run_phoenix(v1, failed_nodes, curr_node_to_pod, workloads, stateless_nodes)
         FIXED = True
     else:
         print("All nodes are healthy")
@@ -315,7 +374,7 @@ def check_node_conditions_and_alert(v1, workloads):
 # POD_TO_NODE, NODE_TO_POD = list_pods_with_node()
 # POD_RANKS = ["mongo", "redis", "docstore", "filestore", "real-time", "document-updater", "web", "clsi", "track-changes","notifications", "contacts", "spelling", "tags"]
 
-def phoenix(v1, workloads):
+def phoenix(v1, workloads, stateless_nodes):
     global POD_TO_NODE
     global NODE_TO_POD
     global POD_RANKS
@@ -324,15 +383,15 @@ def phoenix(v1, workloads):
     while True:
         print(utils.get_pod_cpu_requests_and_limits(v1))
         print(utils.get_cluster_state(v1))
-        check_node_conditions_and_alert(v1, workloads)
+        check_node_conditions_and_alert(v1, workloads, stateless_nodes)
         time.sleep(15)
         
-if __name__ == "__main__":
-    config.load_kube_config()
+# if __name__ == "__main__":
+#     config.load_kube_config()
 
-    # Initialize the Kubernetes API client.
-    v1 = client.CoreV1Api()
-    phoenix(v1, {})
+#     # Initialize the Kubernetes API client.
+#     v1 = client.CoreV1Api()
+#     phoenix(v1, {})
 #     while True:
 #         # print(NODE_TO_POD)
 #         print(utils.get_pod_cpu_requests_and_limits(v1))

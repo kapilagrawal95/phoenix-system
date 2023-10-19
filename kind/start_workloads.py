@@ -6,11 +6,10 @@ import create_users
 import Phoenix
 import subprocess
 import time
+import logging
+import datetime
 
-def get_node_label(node):
-    # d = {0:"zero", 1:"one", 2:"two", 3:"three", 4:"four", 5:"five"}
-    node_id = int(node.split("-")[-1])
-    return node_id
+
 
 def partition_nodes(node_list):
     #40% nodes are stateful and 60% are stateless
@@ -20,6 +19,8 @@ def partition_nodes(node_list):
     node_list = sorted(node_list, key=custom_node_sort)
     total_nodes = len(node_list)
     stateful_ind = int(total_nodes * 0.4)
+    print(total_nodes)
+    print(stateful_ind)
     return node_list[:stateful_ind], node_list[stateful_ind:]
 
 OVERLEAF_YAML_PATH = "overleaf/kubernetes"
@@ -90,78 +91,97 @@ def assign_env_variables(service, env_vars, context):
     return vars
     
 if __name__ == "__main__":
+    # Configure the logger
+    logging.basicConfig(filename='logs/phoenix.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+    logger = logging.getLogger()
+    name_of_host_cmd = "hostname"
+    host_name = str(subprocess.check_output(name_of_host_cmd, shell=True, text=True)).strip()
+    # host_name = str()
+    logger.info("[{}] {} [Phoenix] Starting Phoenix with policy ..".format(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'), host_name))
     NUM_OVERLEAF_WORKLOADS=1
     # Load the Kubernetes configuration from the default location or a kubeconfig file.
     config.load_kube_config()
     # Initialize the Kubernetes API client.
     v1 = client.CoreV1Api()
-    cluster_state = utils.get_cluster_state(v1)
-    nodes = list(cluster_state.keys())
+    nodes = utils.get_nodes(v1)
+    # nodes = list(cluster_state.keys())
     stateful_nodes, stateless_nodes = partition_nodes(nodes)
     stateful_nodes = stateful_nodes[1:]
-    stateless_nodes = stateless_nodes[:-1]
-    print(stateful_nodes)
-    print(stateless_nodes)
-    # workloads = {}
-    # for i in range(NUM_OVERLEAF_WORKLOADS):
-    #     ns = "overleaf-{}".format(i)
-    #     print("Creating namespace {}...".format(ns))
-    #     output = utils.create_namespace(ns)
-    #     if output is None:
-    #         raise Exception("failed to create namespace")
-    #     # tag namespaces
-    #     cmd = "kubectl label ns {} phoenix=enabled".format(ns)
-    #     output = subprocess.check_output(cmd, shell=True, text=True)
-    #     print(output)
-    #     overleaf_instance = copy.deepcopy(OVERLEAF_SERVICES)
-    #     for service in overleaf_instance.keys():
-    #         print("Deploying service {}".format(service))
-    #         # assign environment variables, if any
-    #         service_details = overleaf_instance[service]
-    #         if len(service_details["env_vars"]):
-    #             all_vars = list(service_details["env_vars"].keys())
-    #             env_vars = assign_env_variables(service, all_vars, overleaf_instance)
-    #             service_details["env_vars"] = dict(env_vars)
-    #         cpu = int(next((value for key, value in service_details["env_vars"].items() if "_CPU" in key), None).replace("m", ""))/1000
-    #         print("CPU requirement for {} is {}".format(service, cpu))
-    #         if service_details["stateless"]:
-    #             # node = random.choice(stateless_nodes) # earlier was using random
-    #             node = utils.most_empty_bin_packing(v1,cpu, stateless_nodes)
-    #         else:
-    #             # node = random.choice(stateful_nodes)
-    #             node = utils.most_empty_bin_packing(v1,cpu, stateful_nodes)
-    #         node_label = get_node_label(node)
-    #         print("Trying to place {} on {} using most_empty bin packing policy".format(service, node_label))
-    #         print("Fetching manifest files...")
-    #         manifests = utils.fetch_all_files(service, ROOT="kubernetes/")
-    #         print("Found {} manifests".format(len(manifests)))
-    #         utils.initiate_pod(manifests, service, str(node_label), ns, env_vars=service_details["env_vars"])
-    #     workloads[ns] = overleaf_instance
+    print("Dedicated nodes for stateful services are {}".format(stateful_nodes))
+    print("Dedicated nodes for stateless services are {}".format(stateless_nodes))
+    logger.info("[{}] {} [Phoenix] Stateful Nodes: {}".format(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'), host_name, stateful_nodes))
+    logger.info("[{}] {} [Phoenix] Stateless Nodes: {}".format(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'), host_name, stateless_nodes))
+    workloads = {}
+    namespaces = []
+    for i in range(NUM_OVERLEAF_WORKLOADS):
+        ns = "overleaf{}".format(i)
+        print("Creating namespace {}...".format(ns))
+        output = utils.create_namespace(ns)
+        if output is None:
+            raise Exception("failed to create namespace")
+        # tag namespaces
+        cmd = "kubectl label ns {} phoenix=enabled".format(ns)
+        output = subprocess.check_output(cmd, shell=True, text=True)
+        # print(output)
+        overleaf_instance = copy.deepcopy(OVERLEAF_SERVICES)
+        
+        for service in overleaf_instance.keys():
+            print("Deploying service {}".format(service))
+            # assign environment variables, if any
+            service_details = overleaf_instance[service]
+            if len(service_details["env_vars"]):
+                all_vars = list(service_details["env_vars"].keys())
+                env_vars = assign_env_variables(service, all_vars, overleaf_instance)
+                service_details["env_vars"] = dict(env_vars)
+            cpu = int(next((value for key, value in service_details["env_vars"].items() if "_CPU" in key), None).replace("m", ""))/1000
+            print("CPU requirement for {} is {}".format(service, cpu))
+            if service_details["stateless"]:
+                # node = random.choice(stateless_nodes) # earlier was using random
+                node = utils.most_empty_bin_packing(v1,cpu, stateless_nodes)
+            else:
+                # node = random.choice(stateful_nodes)
+                node = utils.most_empty_bin_packing(v1,cpu, stateful_nodes)
+            node_label = utils.get_node_label(node)
+            print("Trying to place {} on {} using most_empty bin packing policy".format(service, node_label))
+            manifests = utils.fetch_all_files(service, ROOT="kubernetes/")
+            utils.initiate_pod(manifests, service, str(node_label), ns, env_vars=service_details["env_vars"])
+            workload_key = ns+"--"+service
+            workloads[workload_key] = service_details
+        namespaces.append(ns)
+        # workloads[ns] = overleaf_instance
     
-    # print(workloads)
+    print(workloads)
+    print(namespaces)
+    logger.info("[{}] {} [Phoenix] Workloads Dict {}".format(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'), host_name, workloads))
+    logger.info("[{}] {} [Phoenix] Namespaces List {}".format(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'), host_name, namespaces))
+    
     # Check if all pods are running in all valid namespaces
     flag=True
-    config.load_kube_config()
-    # List all namespaces with label "phoenix=enabled"
-    v1 = client.CoreV1Api()
-    # while flag:
-    #     namespaces = v1.list_namespace(label_selector="phoenix=enabled")
-    #     flags = []
-    #     for ns in namespaces.items:
-    #         namespace_name = ns.metadata.name
-    #         if utils.check_pods_in_namespace(namespace_name, v1):
-    #             print(f'All pods are running in namespace "{namespace_name}"')
-    #             flags.append(False)
-    #         else:
-    #             print(f'Not all pods are running in namespace "{namespace_name}"')
-    #             flags.append(True)
-    #     flag = any(flags)
-    #     time.sleep(10)
+
+    while flag:
+        nss = v1.list_namespace(label_selector="phoenix=enabled")
+        flags = []
+        for ns in nss.items:
+            namespace_name = ns.metadata.name
+            if utils.check_pods_in_namespace(namespace_name, v1):
+                print(f'All pods are running in namespace "{namespace_name}"')
+                flags.append(False)
+            else:
+                print(f'Not all pods are running in namespace "{namespace_name}"')
+                flags.append(True)
+        flag = any(flags)
+        time.sleep(10)
+    logger.info("[{}] {} [Phoenix] All pods are running".format(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'), host_name))
     
-    # once all pods are running create_users
-    # for namespace in workloads.keys():
-    #     create_users.create_overleaf_users(10, namespace, workloads[namespace]["web"]["env_vars"]["WEB_NODEPORT"])
-    workloads = {'overleaf-0': {'mongo': {'stateless': False, 'env_vars': {'MONGO_CPU': '2000m'}}, 'clsi': {'stateless': True, 'env_vars': {'CLSI_CPU': '3000m'}}, 'tags': {'stateless': True, 'env_vars': {'TAGS_CPU': '300m'}}, 'contacts': {'stateless': True, 'env_vars': {'CONTACTS_CPU': '200m'}}, 'docstore': {'stateless': False, 'env_vars': {'DOCSTORE_CPU': '500m'}}, 'document-updater': {'stateless': True, 'env_vars': {'DOCUMENT_UPDATER_CPU': '3000m'}}, 'filestore': {'stateless': False, 'env_vars': {'FILESTORE_CPU': '1000m'}}, 'notifications': {'stateless': True, 'env_vars': {'NOTIFICATIONS_CPU': '500m'}}, 'real-time': {'stateless': True, 'env_vars': {'REAL_TIME_NODEPORT': 30910, 'REAL_TIME_CPU': '3000m'}}, 'redis': {'stateless': False, 'env_vars': {'REDIS_CPU': '1000m'}}, 'spelling': {'stateless': True, 'env_vars': {'SPELLING_CPU': '500m'}}, 'track-changes': {'stateless': True, 'env_vars': {'TRACK_CHANGES_CPU': '3000m'}}, 'web': {'stateless': False, 'env_vars': {'WEB_NODEPORT': 30911, 'SHARELATEX_REAL_TIME_URL_VALUE': '155.98.38.116:30910', 'WEB_CPU': '5000m'}}}}
+    # namespaces = ["overleaf0"]
+    # workloads = {'overleaf0--mongo': {'stateless': False, 'env_vars': {'MONGO_CPU': '2000m'}}, 'overleaf0--clsi': {'stateless': True, 'env_vars': {'CLSI_CPU': '3000m'}}, 'overleaf0--tags': {'stateless': True, 'env_vars': {'TAGS_CPU': '300m'}}, 'overleaf0--contacts': {'stateless': True, 'env_vars': {'CONTACTS_CPU': '200m'}}, 'overleaf0--docstore': {'stateless': False, 'env_vars': {'DOCSTORE_CPU': '500m'}}, 'overleaf0--document-updater': {'stateless': True, 'env_vars': {'DOCUMENT_UPDATER_CPU': '3000m'}}, 'overleaf0--filestore': {'stateless': False, 'env_vars': {'FILESTORE_CPU': '1000m'}}, 'overleaf0--notifications': {'stateless': True, 'env_vars': {'NOTIFICATIONS_CPU': '500m'}}, 'overleaf0--real-time': {'stateless': True, 'env_vars': {'REAL_TIME_NODEPORT': 30910, 'REAL_TIME_CPU': '3000m'}}, 'overleaf0--redis': {'stateless': False, 'env_vars': {'REDIS_CPU': '1000m'}}, 'overleaf0--spelling': {'stateless': True, 'env_vars': {'SPELLING_CPU': '500m'}}, 'overleaf0--track-changes': {'stateless': True, 'env_vars': {'TRACK_CHANGES_CPU': '3000m'}}, 'overleaf0--web': {'stateless': True, 'env_vars': {'WEB_NODEPORT': 30911, 'SHARELATEX_REAL_TIME_URL_VALUE': '155.98.38.99:30910', 'WEB_CPU': '4000m'}}}
+    for namespace in namespaces:
+        if "overleaf" in namespace:
+            num_users = 10
+            logger.info("[{}] {} [Phoenix] Creating {} Overleaf users in namespace {}".format(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'), host_name, num_users, namespace))
+            web_key = namespace + "--" + "web"
+            create_users.create_overleaf_users(num_users, namespace, workloads[web_key]["env_vars"]["WEB_NODEPORT"])
+
     # Now start phoenix
-    Phoenix.phoenix(v1, workloads)
-    
+    logger.info("[{}] {} [Phoenix] Starting phoenix controller..".format(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'), host_name))
+    Phoenix.phoenix(v1, workloads, stateless_nodes, logger, host_name)

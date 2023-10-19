@@ -159,9 +159,9 @@ class PhoenixScheduler:
                 
             print("Deletion called = {}".format(self.deletion_called))
             
-            for j in range(ms_rank, len(self.pods)):
-                if self.pods[j] in self.pod_to_node:
-                    del self.pod_to_node[self.pods[j]]
+            # for j in range(ms_rank, len(self.pods)):
+            #     if self.pods[j] in self.pod_to_node:
+            #         del self.pod_to_node[self.pods[j]]
                     
             self.scheduler_tasks["sol"] = self.pod_to_node
             # print("Total Best-fit time and count: {} {}".format(sum(self.bestfit_times),len(self.bestfit_times)))

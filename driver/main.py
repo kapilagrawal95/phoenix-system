@@ -25,40 +25,40 @@ sudo apt-get -y install python3.9-distutils; python3 -m pip install kubernetes; 
     return s
 
 if __name__ == "__main__":
-    list_view_str = """node-5	pc489	d710	Emulab	ready	Finished	emulab-ops/UBUNTU22-64-STD	ssh kapila1@pc489.emulab.net 		
+    list_view_str = """node-5	pc492	d710	Emulab	ready	Finished	emulab-ops/UBUNTU22-64-STD	ssh kapila1@pc492.emulab.net 		
  
-node-4	pc436	d710	Emulab	ready	Finished	emulab-ops/UBUNTU22-64-STD	ssh kapila1@pc436.emulab.net 		
+node-4	pc477	d710	Emulab	ready	Finished	emulab-ops/UBUNTU22-64-STD	ssh kapila1@pc477.emulab.net 		
  
-node-7	pc500	d710	Emulab	ready	Finished	emulab-ops/UBUNTU22-64-STD	ssh kapila1@pc500.emulab.net 		
+node-7	pc474	d710	Emulab	ready	Finished	emulab-ops/UBUNTU22-64-STD	ssh kapila1@pc474.emulab.net 		
  
-node-6	pc518	d710	Emulab	ready	Finished	emulab-ops/UBUNTU22-64-STD	ssh kapila1@pc518.emulab.net 		
+node-6	pc479	d710	Emulab	ready	Finished	emulab-ops/UBUNTU22-64-STD	ssh kapila1@pc479.emulab.net 		
  
-node-1	pc517	d710	Emulab	ready	Finished	emulab-ops/UBUNTU22-64-STD	ssh kapila1@pc517.emulab.net 		
+node-1	pc476	d710	Emulab	ready	Finished	emulab-ops/UBUNTU22-64-STD	ssh kapila1@pc476.emulab.net 		
  
-node-0	pc516	d710	Emulab	ready	Finished	emulab-ops/UBUNTU22-64-STD	ssh kapila1@pc516.emulab.net 		
+node-0	pc499	d710	Emulab	ready	Finished	emulab-ops/UBUNTU22-64-STD	ssh kapila1@pc499.emulab.net 		
  
-node-3	pc494	d710	Emulab	ready	Finished	emulab-ops/UBUNTU22-64-STD	ssh kapila1@pc494.emulab.net 		
+node-3	pc498	d710	Emulab	ready	Finished	emulab-ops/UBUNTU22-64-STD	ssh kapila1@pc498.emulab.net 		
  
-node-2	pc483	d710	Emulab	ready	Finished	emulab-ops/UBUNTU22-64-STD	ssh kapila1@pc483.emulab.net 		
+node-2	pc473	d710	Emulab	ready	Finished	emulab-ops/UBUNTU22-64-STD	ssh kapila1@pc473.emulab.net 		
  
-node-9	pc515	d710	Emulab	ready	Finished	emulab-ops/UBUNTU22-64-STD	ssh kapila1@pc515.emulab.net 		
+node-9	pc491	d710	Emulab	ready	Finished	emulab-ops/UBUNTU22-64-STD	ssh kapila1@pc491.emulab.net 		
  
-node-8	pc482	d710	Emulab	ready	Finished	emulab-ops/UBUNTU22-64-STD	ssh kapila1@pc482.emulab.net 		
- 
+node-8	pc478	d710	Emulab	ready	Finished	emulab-ops/UBUNTU22-64-STD	ssh kapila1@pc478.emulab.net 		
+
 """
     node_info_dict = setup_cloudlab.get_node_info_dict(list_view_str)
     print(node_info_dict)
-    # s = label_nodes(node_info_dict)
-    # # label worker nodes -- all nodes excluding node-0
-    # with open(STARTUP, "w") as file:
-    #     file.write(s)
-    # file.close()
+    s = label_nodes(node_info_dict)
+    # label worker nodes -- all nodes excluding node-0
+    with open(STARTUP, "w") as file:
+        file.write(s)
+    file.close()
     # # now copy STARTUP file into node-0 and then execute it
     setup_cloudlab.send_dir(node_info_dict['node-0']['host'], "kind")  
     setup_cloudlab.send_dir(node_info_dict['node-0']['host'], "overleaf")
     setup_cloudlab.send_dir(node_info_dict['node-0']['host'], "kind/RMScheduler")
     # # get ip of cloudlab cluster 
-    # ip = get_ip(node_info_dict['node-0']['host'])
+    ip = get_ip(node_info_dict['node-0']['host'])
     # print("The IP address for the cluster is {}".format(ip))
     # num_workloads = 2
     # for i in num_workloads:

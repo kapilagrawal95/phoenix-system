@@ -23,26 +23,51 @@ def check_pods_in_namespace(namespace, v1):
     for pod in pod_list.items:
         if pod.status.phase != "Running":
             return False
-
     return True
+    
+def get_node_label(node):
+    # d = {0:"zero", 1:"one", 2:"two", 3:"three", 4:"four", 5:"five"}
+    node_id = int(node.split("-")[-1])
+    return node_id
+  
+def get_nodes(v1):
+    nodes = v1.list_node().items
+    node_names = []
+    for node in nodes:
+        node_names.append(node.metadata.name)
+    return node_names
+  
   
 def list_pods_with_node(v1, phoenix_enabled = False):
     # List all pods in the cluster
     pods = v1.list_pod_for_all_namespaces(watch=False)
+    nodes = v1.list_node().items
+    failed_nodes = set()
+    for node in nodes:
+        for condition in node.status.conditions:
+            if condition.type == 'Ready' and condition.status == 'Unknown':
+                failed_nodes.add(node.metadata.name)
     pod_to_node = {}
     node_to_pod = {}
     for pod in pods.items:
         pod_name = pod.metadata.name
+        # print("Doing pod {}".format(pod_name))
         namespace = pod.metadata.namespace
         node_name = pod.spec.node_name
+        if node_name in failed_nodes:
+          continue
+        # print("Node is health. Now checking if phoenix enabled.")
         if phoenix_enabled:
           namespace_obj = v1.read_namespace(namespace)
           labels = namespace_obj.metadata.labels
           if "phoenix" not in labels:
             continue
           if labels["phoenix"] != "enabled":
-            continue
-        pod_to_node[pod_name] = node_name
+            continue  
+        # print(pod_name, node_name)
+        pod_name = namespace + "--" + pod_name
+        if node_name is not None:
+          pod_to_node[pod_name] = node_name
         if node_name in node_to_pod.keys():
             node_to_pod[node_name].append(pod_name)
         else:
@@ -94,8 +119,20 @@ def get_pod_cpu_requests_and_limits(api):
 
     return pod_resources
   
+def parse_pod_name_to_key(pod):
+  ns, ms = parse_pod_name(pod)
+  return ns+"--"+ms
+
+def parse_key(key):
+    parts = key.split("--")
+    ns_name, pod_name = parts[0], parts[1]
+    return (ns_name, pod_name)
+  
 def parse_pod_name(pod):
-    return "-".join(pod.split("-")[:-2])
+    parts = pod.split("--")
+    ns_name, pod_name = parts[0], parts[1]
+    svc_name = "-".join(pod_name.split("-")[:-2])
+    return (ns_name, svc_name)
   
 # @staticmethod
 def parse_resource_cpu(resource_str):
@@ -129,7 +166,7 @@ def get_cluster_state(kubecoreapi) -> Dict[str, Dict[str, int]]:
 
     nodes = nodes.items
     pods = pods.items
-    print("Total pods when getting cluster state = {}".format(len(pods)))
+    # print("Total pods when getting cluster state = {}".format(len(pods)))
     # print(nodes)
     # print(pods)
     available_resources = {}
@@ -200,7 +237,7 @@ def most_empty_bin_packing(api, resource, candidates):
     candidates = set(candidates)
     remaining_space = -1*math.inf
     best_fit_bin = None
-    print("Cluster State before allocation = {}".format(cluster_state))
+    # print("Cluster State before allocation = {}".format(cluster_state))
     for node in cluster_state.keys():
       if node in candidates:
         remaining = cluster_state[node]["cpu"] - resource
@@ -378,13 +415,19 @@ if __name__ == "__main__":
   config.load_kube_config()
   # List all namespaces with label "phoenix=enabled"
   v1 = client.CoreV1Api()
-  while flag:
-      namespaces = v1.list_namespace(label_selector="phoenix=enabled")
-      for ns in namespaces.items:
-          namespace_name = ns.metadata.name
-          if check_pods_in_namespace(namespace_name):
-              print(f'All pods are running in namespace "{namespace_name}"')
-              flag = False
-          else:
-              print(f'Not all pods are running in namespace "{namespace_name}"')
+  pod_to_node, node_to_pod = list_pods_with_node(v1, phoenix_enabled=True)
+  # print(pod_to_node)
+  print(node_to_pod)
+  
+  # for pod in pod_to_node.keys():
+  #   print(parse_pod_name(pod))
+  # while flag:
+  #     namespaces = v1.list_namespace(label_selector="phoenix=enabled")
+  #     for ns in namespaces.items:
+  #         namespace_name = ns.metadata.name
+  #         if check_pods_in_namespace(namespace_name):
+  #             print(f'All pods are running in namespace "{namespace_name}"')
+  #             flag = False
+  #         else:
+  #             print(f'Not all pods are running in namespace "{namespace_name}"')
     

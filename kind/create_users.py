@@ -22,11 +22,11 @@ def create_overleaf_users(num_users, ns, port):
         username, password = get_user_credentials(i)
         print("Trying to add new user with credentials username: {} and password: {}".format(username, password))
         pod_command = "kubectl get pods -n {} | grep '^web' | awk {}".format(ns, "'{print $1}'")
-        print(pod_command)
+        # print(pod_command)
         output = subprocess.check_output(pod_command, shell=True)
         pod_name = output.decode("utf-8").strip()
         command = "kubectl exec -it "+pod_name+" -n {} -- grunt user:create-admin --email {}".format(ns, username)
-        print(command)
+        # print(command)
         output = subprocess.check_output(command, shell=True)
         output_str = output.decode("utf-8")
         print("Successfully, created new username...")
@@ -35,11 +35,11 @@ def create_overleaf_users(num_users, ns, port):
         output = subprocess.check_output(ip_command, shell=True)
         IP = output.decode("utf-8").strip()
         url = url.replace("localhost:8080", IP+":"+str(port))
-        print(url)
+        # print(url)
         resetToken = url.split("Token=")[-1].strip()
         session = requests.Session()  # Create a session to persist cookies
         response = session.get(url)
-        print(response.text)
+        # print(response.text)
         csrf, reset = find_csrf_passwordReset_tokens(str(response.content))
         data = {"_csrf":csrf,"password":password,"passwordResetToken":resetToken}
         post_url = "http://localhost:8080/user/password/set"
@@ -52,4 +52,4 @@ def create_overleaf_users(num_users, ns, port):
         session.close()
 
 if __name__ == "__main__":
-    create_overleaf_users(10, "overleaf-2", 30915)
+    create_overleaf_users(10, "overleaf0", 30911)

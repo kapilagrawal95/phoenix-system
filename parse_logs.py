@@ -4,7 +4,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 
-def plot_success_rate(total_requests, successful_requests, total_utility, success_utility):
+def plot_success_rate(total_requests, successful_requests, total_utility, success_utility, y1, y2, x1, x2):
 
     # Create a new figure
     fig = go.Figure()
@@ -51,7 +51,11 @@ def plot_success_rate(total_requests, successful_requests, total_utility, succes
                 size=0
             )
         ))
-
+        
+    fig.add_vline(x=y1, line_dash='dash', line_color='green', line_width=1.5, name='Deletion begun at', showlegend=True)
+    fig.add_vline(x=y2, line_dash='solid', line_color='green', line_width=1.5, name='Kubelet stopped at', showlegend=True)
+    fig.add_vline(x=x1, line_dash='solid', line_color='orange', line_width=1.5, name='Phoenix detection at', showlegend=True)
+    fig.add_vline(x=x2, line_dash='dash', line_color='orange', line_width=1.5, name='Issued all commands', showlegend=True)
     # Update the layout of the figure
     fig.update_layout(
         title='Success Rate of Requests',
@@ -62,14 +66,17 @@ def plot_success_rate(total_requests, successful_requests, total_utility, succes
     # Plot the figure
     fig.show()
 
-resolution = 15 #Club every 15 seconds
+resolution = 5 #Club every 15 seconds
 
 request_counts = defaultdict(int)
 success_counts = defaultdict(int)
 total_utility = defaultdict(float)
 utility = defaultdict(float)
 
-logfile = "logs/second.log"
+loadgen_log = "logs/run9.log"
+phoenix_log = "logs/phoenix.log"
+chaos_log = "logs/chaos.log"
+
 # Define resolution intervals (1s, 2s, 15s)
 
 def assign_utility(wrk_name):
@@ -98,7 +105,7 @@ def assign_utility(wrk_name):
 
 
 # Convert log entries into datetime objects and extract success information
-with open(logfile, "r") as logs:
+with open(loadgen_log, "r") as logs:
     for line in logs:
         if "[Phoenix]" not in line:
             continue
@@ -116,10 +123,12 @@ with open(logfile, "r") as logs:
         interval_str = interval_timestamp.strftime("%Y-%m-%d %H:%M:%S")
         # Increment the count for the corresponding second
         request_counts[interval_str] += 1
+        # success_counts[interval_str]
         if interval_str in total_utility:
             total_utility[interval_str] += util_score
         else:
             total_utility[interval_str] = 0
+            utility[interval_str] = 0
         
         if success:
             success_counts[interval_str] += 1
@@ -127,21 +136,60 @@ with open(logfile, "r") as logs:
                 utility[interval_str] += util_score
             else:
                 utility[interval_str] = 0
-        # print(timestamp)
-        # Iterate over resolutions and update counts
-        # for resolution in resolutions:
-        #     key = timestamp.replace(microsecond=0, second=(timestamp.second // resolution) * resolution)
-        #     request_counts[key] += 1
-        #     if success:
-        #         success_counts[key] += 1
-# print(request_counts)
-# print(len(request_counts))
-# print(success_counts)
+                
+first_delete_occurrence = None
+first_kubelet_occurrence = None
+with open(chaos_log, "r") as file:
+    for line in file:
+        entry = line.replace("\n", "")
+        parts = entry.split(" ")
+        timestamp_str = " ".join(parts[0:2])
+        timestamp = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S,%f")
+        timestamp = timestamp - timedelta(hours=1)
+
+        timestamp_str = timestamp.strftime("%Y-%m-%d %H:%M:%S")
+        # Calculate the timestamp for 15-second intervals
+        interval_timestamp = timestamp - timedelta(seconds=timestamp.second % resolution)
+        # Convert the interval timestamp to a string
+        interval_str = interval_timestamp.strftime("%Y-%m-%d %H:%M:%S")
+        if "Forcefully deleted deployment" in line:
+            if first_delete_occurrence is None:
+                first_delete_occurrence = interval_str
+        if "Stopped Kubelet" in line:
+            if first_kubelet_occurrence is None:
+                first_kubelet_occurrence = interval_str
+            
+
+phoenix_detection = None
+executor_done = None
+with open(phoenix_log, "r") as file:
+    for line in file:
+        entry = line.replace("\n", "")
+        parts = entry.split(" ")
+        timestamp_str = " ".join(parts[0:2])
+        timestamp = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S,%f")
+        timestamp = timestamp - timedelta(hours=1)
+
+        timestamp_str = timestamp.strftime("%Y-%m-%d %H:%M:%S")
+        # Calculate the timestamp for 15-second intervals
+        interval_timestamp = timestamp - timedelta(seconds=timestamp.second % resolution)
+        interval_str = interval_timestamp.strftime("%Y-%m-%d %H:%M:%S")
+        if "Detected node(s) failure" in line:
+            # if phoenix_detection is None:
+            phoenix_detection = interval_str
+        if "Phoenix Executor issued all" in line:
+            executor_done = interval_str
 
 
-assert len(request_counts) == len(success_counts)
+            
+        
+        
+        
+print("First Delete Occurence at {} and kubelet occurence at {}".format(first_delete_occurrence, first_kubelet_occurrence))
+# assert len(request_counts) == len(success_counts)
 
-plot_success_rate(request_counts, success_counts, total_utility, utility)
+# plot_success_rate(request_counts, success_counts, total_utility, utility)
+plot_success_rate(request_counts, success_counts, {}, {}, first_delete_occurrence, first_kubelet_occurrence, phoenix_detection, executor_done)
 # utility_normalized = {}
 # success_normalized = {}
 # for key in request_counts.keys():
